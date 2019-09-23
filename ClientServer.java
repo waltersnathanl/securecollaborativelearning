@@ -8,14 +8,15 @@ import java.sql.*;
 import java.math.BigInteger;
 import java.lang.Math;
 
-import paillierp.Paillier;
-import paillierp.PaillierThreshold;
-import paillierp.key.KeyGen;
+import paillierp.*;
 import paillierp.key.PaillierPrivateThresholdKey;
-import paillierp.zkp.DecryptionZKP;
-
+import paillierp.key.PaillierThresholdKey;
 
 public class ClientServer {
+
+    public class Message implements Serializable{
+        //My goal here is to create a single uniform message object that can contain a key, a SQL query, a dictionary of epsilon values, or an encrypted message.
+    }
 
     public static double laplace(double scale) {
         double exponential_sample1 = -scale * Math.log(Math.random());
@@ -29,7 +30,7 @@ public class ClientServer {
         int port = 8080;
         try (ServerSocket serverSocket = new ServerSocket(port)) {
 
-//            while(true){
+ //           while(true){
             Socket socket = serverSocket.accept();
 
             OutputStream outputStream = socket.getOutputStream();
@@ -37,11 +38,22 @@ public class ClientServer {
             ObjectOutputStream objectOutputStream = new ObjectOutputStream(outputStream);
             ObjectInputStream objectInputStream = new ObjectInputStream(inputStream);
 
-            PaillierPrivateThresholdKey privateKey = (PaillierPrivateThresholdKey) objectInputStream.readObject();
-            Paillier encryptionKey = new Paillier(privateKey.getPublicKey());
-            PaillierThreshold decryptionKey = new PaillierThreshold(privateKey);
+            PaillierThresholdKey privateKey;
+            PaillierThreshold decryptionKey;
+            PaillierPrivateThresholdKey myKey;
+            byte[] bytestream;
 
+
+            bytestream = (byte[]) objectInputStream.readObject();
+            myKey = new PaillierPrivateThresholdKey(bytestream,30L);
+
+            decryptionKey = new PaillierThreshold(privateKey);
             objectOutputStream.writeObject("confirmed");
+
+
+            Paillier encryptionKey = new Paillier(decryptionKey.getPublicKey());
+
+
 
             socket.close();
             while (true) {
@@ -51,8 +63,10 @@ public class ClientServer {
                 InputStream inputStream1 = socket.getInputStream();
                 ObjectOutputStream objectOutputStream1 = new ObjectOutputStream(outputStream);
                 ObjectInputStream objectInputStream1 = new ObjectInputStream(inputStream);
-
-                String serverMessageAndType = (String) objectInputStream.readObject();
+                String serverMessageAndType = "k";
+                while(objectInputStream1.available()>0){
+                    serverMessageAndType = (String) objectInputStream1.readObject();
+                }
 
                 char messageType = serverMessageAndType.charAt(0);
                 String serverMessage = serverMessageAndType.substring(1);
