@@ -92,8 +92,8 @@ public class ClientServer {
                         Class.forName("com.mysql.jdbc.Driver");
                         //DriverManager.registerDriver(new com.mysql.jdbc.Driver());
                         String url = "jdbc:mysql://localhost:3306/testdb?";
-                        String user = "root";
-                        String password = "";
+                        String user = "testuser";
+                        String password = "password";
                         Properties properties = new Properties();
                         properties.setProperty("user", "root");
                         properties.setProperty("password", "");

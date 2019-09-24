@@ -15,9 +15,10 @@ import java.util.Random;
     public class AggregatorServer{
         public static void main(String[] args) throws IOException, ClassNotFoundException {
             //Task 1: get a list we can use to communicate with all the clients.
-            InetAddress[] clients = new InetAddress [1];
+            InetAddress[] clients = new InetAddress [2];
 //            clients[0] = InetAddress.getByName("34.211.230.198");
-            clients[0] = InetAddress.getByName("34.223.215.79");
+            clients[0] = InetAddress.getByName("54.202.197.122");
+            clients[1] = InetAddress.getByName("34.223.215.79");
 
 
             //Task 1: generate and distribute keys
@@ -73,11 +74,11 @@ import java.util.Random;
             BigInteger[] aggregatedResponses = new BigInteger[length_of_response];
             for(int j=0;j<length_of_response;j++){
                 BigInteger current_value = responseMatrix[0][j];
-                System.out.println(current_value.toString(10) + ";");
+                //System.out.println(current_value.toString(10) + ";");
 
                 for(int i=1;i<clients.length;i++){
                     current_value = myKey.add(current_value,responseMatrix[i][j]);
-                    System.out.println(current_value.toString(10) + "!");
+                    //System.out.println(current_value.toString(10) + "!");
 
                 }
                 aggregatedResponses[j] = current_value;
@@ -93,7 +94,7 @@ import java.util.Random;
                         OutputStream outputStream1 = socket2.getOutputStream();
                         InputStream inputStream1 = socket2.getInputStream();
                         ObjectOutputStream objectOutputStream1 = new ObjectOutputStream(outputStream1);
-                        System.out.println(aggregatedResponses[j].toString(10)+"?");
+                        //System.out.println(aggregatedResponses[j].toString(10)+"?");
                         ObjectInputStream objectInputStream1 = new ObjectInputStream(inputStream1);
                         objectOutputStream1.writeObject("e" + aggregatedResponses[j].toString(10));
                         currentZKP = (PartialDecryption) objectInputStream1.readObject();
