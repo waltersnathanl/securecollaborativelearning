@@ -9,8 +9,8 @@ import java.math.BigInteger;
 import java.lang.Math;
 
 import paillierp.*;
-import paillierp.key.PaillierPrivateThresholdKey;
-import paillierp.key.PaillierThresholdKey;
+import paillierp.key.*;
+import paillierp.zkp.*;
 
 public class ClientServer {
 
@@ -47,7 +47,7 @@ public class ClientServer {
             bytestream = (byte[]) objectInputStream.readObject();
             myKey = new PaillierPrivateThresholdKey(bytestream,30L);
 
-            decryptionKey = new PaillierThreshold(privateKey);
+            decryptionKey = new PaillierThreshold(myKey);
             objectOutputStream.writeObject("confirmed");
 
 
@@ -56,69 +56,94 @@ public class ClientServer {
 
 
             socket.close();
+            int counter = 0;
             while (true) {
                 Socket socket1 = serverSocket.accept();
+                counter += 1;
+                System.out.println("Counter is at: " + counter);
 
-                OutputStream outputStream1 = socket.getOutputStream();
-                InputStream inputStream1 = socket.getInputStream();
-                ObjectOutputStream objectOutputStream1 = new ObjectOutputStream(outputStream);
-                ObjectInputStream objectInputStream1 = new ObjectInputStream(inputStream);
-                String serverMessageAndType = "k";
+                OutputStream outputStream1 = socket1.getOutputStream();
+                InputStream inputStream1 = socket1.getInputStream();
+                ObjectOutputStream objectOutputStream1 = new ObjectOutputStream(outputStream1);
+                ObjectInputStream objectInputStream1 = new ObjectInputStream(inputStream1);
+                String serverMessageAndType = (String) objectInputStream1.readObject();
+                //String serverMessageAndType = "";
                 while(objectInputStream1.available()>0){
-                    serverMessageAndType = (String) objectInputStream1.readObject();
+                    serverMessageAndType += (String) objectInputStream1.readObject();
                 }
+                System.out.println(serverMessageAndType);
 
                 char messageType = serverMessageAndType.charAt(0);
                 String serverMessage = serverMessageAndType.substring(1);
+//                System.out.println(serverMessageAndType);
+                System.out.println(messageType);
+//                System.out.println(serverMessage);
                 switch (messageType) {
-                    case 'q': //query
+                    case 'q': {//query
 
-                            //create the database connection -- we'll use same basic configuration for each database here
-                            //fancy future version will have something like a JSON table that has db info, aliases, etc
-                            // create our mysql database connection
-                            String[] queryAndNoise = serverMessage.split("&&&");
-                            //We will have query &&& result1:epsilon1 &&& result2:epsilon2...
-                            //Note that result is always an integer, because that's all we can encode with this system
-                            String query = queryAndNoise[0];
-                            String myDriver = "com.mysql.jdbc.Driver";
-                            String myUrl = "jdbc:mysql://localhost/testdb";
-                            Class.forName(myDriver);
-                            Connection conn = DriverManager.getConnection(myUrl, "testuser", "password");
+                        //create the database connection -- we'll use same basic configuration for each database here
+                        //fancy future version will have something like a JSON table that has db info, aliases, etc
+                        // create our mysql database connection
+                        String[] queryAndNoise = serverMessage.split("&&&");
+                        //We will have query &&& result1:epsilon1 &&& result2:epsilon2...
+                        //Note that result is always an integer, because that's all we can encode with this system
+                        String query = queryAndNoise[0];
+                        Connection conn = null;
+                        Class.forName("com.mysql.jdbc.Driver");
+                        //DriverManager.registerDriver(new com.mysql.jdbc.Driver());
+                        String url = "jdbc:mysql://localhost:3306/testdb?";
+                        String user = "root";
+                        String password = "";
+                        Properties properties = new Properties();
+                        properties.setProperty("user", "root");
+                        properties.setProperty("password", "");
 
-                            //perform the query.  Ideally the query can be stated precisely in terms of SQL statements.
-                            //If we need to do further processing, this would be where we implement that
-                            Statement statement = conn.createStatement();
-                            ResultSet results = statement.executeQuery(query);
+                        conn = DriverManager.getConnection(url, user, password);
 
-                            //Add noise according to sensitivity; it is the Aggregator's job to allocate this
-                            BigInteger[] encrypted_response = new BigInteger[queryAndNoise.length - 1];
-                            for (int i = 1; i < queryAndNoise.length; i++) {
-                                String[] dict = queryAndNoise[i].split(":");
-                                double noise = laplace(Double.parseDouble(dict[1]));
-                                int aggregate = results.getInt(dict[0]);
-                                BigInteger aggregatePlusNoise = BigInteger.valueOf(Math.round(aggregate + noise) * 100);
-                                BigInteger encrypted_message = encryptionKey.encrypt(aggregatePlusNoise);
-                                encrypted_response[i - 1] = encrypted_message;
+                        //perform the query.  Ideally the query can be stated precisely in terms of SQL statements.
+                        //If we need to do further processing, this would be where we implement that
+                        Statement statement = conn.createStatement();
+                        ResultSet results = statement.executeQuery(query);
+                        results.next();
 
-                                //]Remember we're sending back 100 times the values we're looking for.
-                                // For purposes of odds ratios this won't be problematic but it can show up elsewhere.
-                            }
-                            objectOutputStream.writeObject(encrypted_response);
+                        //Add noise according to sensitivity; it is the Aggregator's job to allocate this
+                        BigInteger[] encrypted_response = new BigInteger[queryAndNoise.length - 1];
+                        for (int i = 1; i < queryAndNoise.length; i++) {
+                            String[] dict = queryAndNoise[i].split(":");
+                            double noise = laplace(Double.parseDouble(dict[1]));
+                            System.out.println(dict[0]);
+                            int aggregate = results.getInt(dict[0]);
+                            BigInteger aggregatePlusNoise = BigInteger.valueOf(Math.round(aggregate + noise) * 100);
+                            BigInteger encrypted_message = encryptionKey.encrypt(aggregatePlusNoise);
+                            encrypted_response[i - 1] = encrypted_message;
+                            System.out.println(encrypted_message.toString(10));
+
+                            //]Remember we're sending back 100 times the values we're looking for.
+                            // For purposes of odds ratios this won't be problematic but it can show up elsewhere.
+                        }
+                        objectOutputStream1.writeObject(encrypted_response);
+                        break;
+                    }
 
 
 
 
-                    case 'e': //encrypted text
+
+                    case 'e': {//encrypted text
                         //perform a partial decryption and return
-                        objectOutputStream.writeObject(decryptionKey.decryptProof(new BigInteger(serverMessage)));
-                    case 'k':
+                        //System.out.println(serverMessage);
+                        objectOutputStream1.writeObject(decryptionKey.decrypt(new BigInteger(serverMessage)));
+                        break;
+                    }
+                    case 'k': {
                         socket.close();
                         return;
+                    }
                 }
-                objectOutputStream.close();
-                objectInputStream.close();
-                socket.close();
-                serverSocket.close();
+                objectOutputStream1.close();
+                objectInputStream1.close();
+                socket1.close();
+//                serverSocket.close();
             }
         } catch (ClassNotFoundException ex) {
             ex.printStackTrace();

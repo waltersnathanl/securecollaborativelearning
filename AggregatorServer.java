@@ -1,6 +1,7 @@
 package club.securecollaborativelearning;
 
 import paillierp.PaillierThreshold;
+import paillierp.PartialDecryption;
 import paillierp.key.KeyGen;
 import paillierp.key.PaillierPrivateThresholdKey;
 import paillierp.zkp.DecryptionZKP;
@@ -21,7 +22,7 @@ import java.util.Random;
 
             //Task 1: generate and distribute keys
             Random rnd = new Random();
-            PaillierPrivateThresholdKey[] keys = KeyGen.PaillierThresholdKey(128,clients.length,clients.length,rnd.nextLong());
+            PaillierPrivateThresholdKey[] keys = KeyGen.PaillierThresholdKey(128,clients.length,clients.length,30L);
             //currently we have it set so everyone needs to work together to decrypt anything.
             PaillierThreshold myKey = new PaillierThreshold(keys[0]);
             //I'm totally stealing one of the private keys so I can do my own crypto.  Shhh!
@@ -59,13 +60,12 @@ import java.util.Random;
                 try (Socket socket = new Socket(clients[i],8080)){
                     OutputStream outputStream = socket.getOutputStream();
                     InputStream inputStream = socket.getInputStream();
-                    ObjectOutputStream objectOutputStream = new ObjectOutputStream(outputStream);
+                    ObjectOutputStream objectOutputStream1 = new ObjectOutputStream(outputStream);
                     ObjectInputStream objectInputStream1 = new ObjectInputStream(inputStream);  //Hashtag
-                    objectOutputStream.writeObject(query);
-                    arrayResponse = new BigInteger[0];
-                    while(objectInputStream1.available()>0){
-                        arrayResponse = (BigInteger[]) objectInputStream1.readObject();
-                    }
+                    objectOutputStream1.writeObject(query);
+                    //arrayResponse = new BigInteger[length_of_response];
+                    arrayResponse = (BigInteger[]) objectInputStream1.readObject();
+
                     responseMatrix[i] = (arrayResponse);
                 }
             }
@@ -73,30 +73,37 @@ import java.util.Random;
             BigInteger[] aggregatedResponses = new BigInteger[length_of_response];
             for(int j=0;j<length_of_response;j++){
                 BigInteger current_value = responseMatrix[0][j];
+                System.out.println(current_value.toString(10) + ";");
+
                 for(int i=1;i<clients.length;i++){
                     current_value = myKey.add(current_value,responseMatrix[i][j]);
+                    System.out.println(current_value.toString(10) + "!");
+
                 }
                 aggregatedResponses[j] = current_value;
             }
 
             //Task 4: distribute the aggregates and decipher
             BigInteger[] cleartextAggregates = new BigInteger[length_of_response];
-            DecryptionZKP currentZKP;
+            PartialDecryption currentZKP;
             for(int j=0;j<length_of_response;j++){
-                DecryptionZKP[] partialDecryptions = new DecryptionZKP[clients.length];
+                PartialDecryption[] partialDecryptions = new PartialDecryption[clients.length];
                 for(int i=0;i<clients.length;i++){
-                    try (Socket socket = new Socket(clients[i], 8080)) {
-                        OutputStream outputStream = socket.getOutputStream();
-                        InputStream inputStream = socket.getInputStream();
-                        ObjectOutputStream objectOutputStream = new ObjectOutputStream(outputStream);
-                        ObjectInputStream objectInputStream = new ObjectInputStream(inputStream);
-                        objectOutputStream.writeObject("e" + aggregatedResponses.toString());
-                        while(objectInputStream.available()>0){
-                            currentZKP = (DecryptionZKP) objectInputStream.readObject();
+                    try (Socket socket2 = new Socket(clients[i], 8080)) {
+                        OutputStream outputStream1 = socket2.getOutputStream();
+                        InputStream inputStream1 = socket2.getInputStream();
+                        ObjectOutputStream objectOutputStream1 = new ObjectOutputStream(outputStream1);
+                        System.out.println(aggregatedResponses[j].toString(10)+"?");
+                        ObjectInputStream objectInputStream1 = new ObjectInputStream(inputStream1);
+                        objectOutputStream1.writeObject("e" + aggregatedResponses[j].toString(10));
+                        currentZKP = (PartialDecryption) objectInputStream1.readObject();
+                        partialDecryptions[i]=currentZKP;
+                        /*while(objectInputStream1.available()>0){
+                            currentZKP = (DecryptionZKP) objectInputStream1.readObject();
                             partialDecryptions[i] = currentZKP;
                         }
-                    } catch (ClassNotFoundException e) {
-                        e.printStackTrace();
+                    } //catch (ClassNotFoundException e) {
+                        e.printStackTrace();*/
                     }
                 }
                 cleartextAggregates[j] = myKey.combineShares(partialDecryptions);
@@ -114,9 +121,7 @@ import java.util.Random;
                     ObjectOutputStream objectOutputStream = new ObjectOutputStream(outputStream);
                     ObjectInputStream objectInputStream = new ObjectInputStream(inputStream);
                     objectOutputStream.writeObject("k");
-                    currentResponse = (String) objectInputStream.readObject();
-                } catch (ClassNotFoundException e) {
-                    e.printStackTrace();
+                    //currentResponse = (String) objectInputStream.readObject();
                 }
             }
         }
