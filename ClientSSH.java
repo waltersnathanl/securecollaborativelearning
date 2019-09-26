@@ -13,7 +13,37 @@ import paillierp.*;
 import paillierp.key.*;
 import paillierp.zkp.*;
 
+import javax.crypto.BadPaddingException;
+import javax.crypto.Cipher;
+import javax.crypto.IllegalBlockSizeException;
+import javax.crypto.NoSuchPaddingException;
+
 public class ClientSSH {
+    public static Object send(InetAddress target, int port, Object message) throws IOException, ClassNotFoundException {
+        Socket socket = new Socket(target, 8080);
+        OutputStream outputStream = socket.getOutputStream();
+        InputStream inputStream = socket.getInputStream();
+        ObjectOutputStream objectOutputStream = new ObjectOutputStream(outputStream);
+        ObjectInputStream objectInputStream = new ObjectInputStream(inputStream);
+        objectOutputStream.writeObject(message);
+        Object payload = objectInputStream.readObject();
+        socket.close();
+        return payload;
+    }
+
+    public static Object get(int port, Object returnMessage) throws IOException, ClassNotFoundException {
+        ServerSocket serverSocket = new ServerSocket(8080);
+        Socket socket = serverSocket.accept();
+        OutputStream outputStream = socket.getOutputStream();
+        InputStream inputStream = socket.getInputStream();
+        ObjectOutputStream objectOutputStream = new ObjectOutputStream(outputStream);
+        ObjectInputStream objectInputStream = new ObjectInputStream((inputStream));
+        objectOutputStream.writeObject(returnMessage);
+        Object payload = objectInputStream.readObject();
+        socket.close();
+        return payload;
+    }
+
 
     public static double laplace(double scale) {
         double exponential_sample1 = -scale * Math.log(Math.random());
@@ -21,68 +51,38 @@ public class ClientSSH {
         return exponential_sample1 - exponential_sample2;
     }
 
-    public static void main(String[] args) throws IOException, NoSuchAlgorithmException, SQLException, ClassNotFoundException {
+    public static void main(String[] args) throws IOException, NoSuchAlgorithmException, SQLException, ClassNotFoundException, NoSuchPaddingException, InvalidKeyException, BadPaddingException, IllegalBlockSizeException {
         //first we talk to the KeyMaster, sending it our public key and getting a paillier key
         int port = 8080;
-        ServerSocket serverSocket = new ServerSocket(port);
-        Socket publicKeySocket = serverSocket.accept();
-        OutputStream publicKeyOutputStream = publicKeySocket.getOutputStream();
-        ObjectOutputStream publicKeyObjectOutputStream = new ObjectOutputStream(publicKeyOutputStream);
+
         KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
         generator.initialize(1024,new SecureRandom());
         KeyPair pair = generator.generateKeyPair();
         PublicKey publicKey = pair.getPublic();
-        publicKeyObjectOutputStream.writeObject(publicKey);
-        publicKeySocket.close();
+        PrivateKey privateKey = pair.getPrivate();
+        Cipher decryptionCipher = Cipher.getInstance("RSA");
+        decryptionCipher.init(Cipher.DECRYPT_MODE,privateKey);
 
+        Object junk;
+        InetAddress aggregatorAddress = (InetAddress) get(port,"aggregator address received");
+        junk = get(port,publicKey);
 
-       // try (ServerSocket serverSocket = new ServerSocket(port)) {
+        byte[] encryptedPaillierKey = (byte[]) get(port,"confirmed");
+        byte[] decryptedPaillierKey = decryptionCipher.doFinal(encryptedPaillierKey);
 
-            //           while(true){
-        Socket paillierKeySocket = serverSocket.accept();
-
-        OutputStream paillierKeyOutputStream = paillierKeySocket.getOutputStream();
-        InputStream paillierKeyInputStream = paillierKeySocket.getInputStream();
-        ObjectOutputStream objectOutputStream = new ObjectOutputStream(paillierKeyOutputStream);
-        ObjectInputStream objectInputStream = new ObjectInputStream(paillierKeyInputStream);
-
-//        PaillierThresholdKey privateKey;
-        PaillierThreshold decryptionKey;
-        PaillierPrivateThresholdKey myKey;
-        byte[] bytestream;
-
-
-        bytestream = (byte[]) objectInputStream.readObject();
-        myKey = new PaillierPrivateThresholdKey(bytestream,1L);
-        //the seed is unimportant at this stage, but the constructor wants it.  Sure.
-
-        decryptionKey = new PaillierThreshold(myKey);
-        objectOutputStream.writeObject("confirmed");
-
-
+        PaillierPrivateThresholdKey myKey = new PaillierPrivateThresholdKey(decryptedPaillierKey,1L);
+        //the seed is unimportant at this stage, but the constructor wants it.
+        PaillierThreshold decryptionKey = new PaillierThreshold(myKey);
         Paillier encryptionKey = new Paillier(decryptionKey.getPublicKey());
-        paillierKeySocket.close();
+
 
         // Now we are talking to the aggregator, which can have longer conversations.
+        String serverMessageAndType;
         while (true) {
-            Socket aggregatorSocket = serverSocket.accept();
-
-            OutputStream outputStream1 = aggregatorSocket.getOutputStream();
-            InputStream inputStream1 = aggregatorSocket.getInputStream();
-            ObjectOutputStream objectOutputStream1 = new ObjectOutputStream(outputStream1);
-            ObjectInputStream objectInputStream1 = new ObjectInputStream(inputStream1);
-            String serverMessageAndType = (String) objectInputStream1.readObject();
-            //String serverMessageAndType = "";
-            while(objectInputStream1.available()>0){
-                serverMessageAndType += (String) objectInputStream1.readObject();
-            }
-            System.out.println(serverMessageAndType);
-
+            serverMessageAndType = (String) get(port,"received");
             char messageType = serverMessageAndType.charAt(0);
             String serverMessage = serverMessageAndType.substring(1);
-//                System.out.println(serverMessageAndType);
             System.out.println(messageType);
-//                System.out.println(serverMessage);
             switch (messageType) {
                 case 'q': {//query
 
@@ -95,23 +95,19 @@ public class ClientSSH {
                     String query = queryAndNoise[0];
                     Connection conn = null;
                     Class.forName("com.mysql.jdbc.Driver");
-                        //DriverManager.registerDriver(new com.mysql.jdbc.Driver());
                     String url = "jdbc:mysql://localhost:3306/testdb?";
                     String user = "testuser";
                     String password = "password";
-                    Properties properties = new Properties();
-                    properties.setProperty("user", "root");
-                    properties.setProperty("password", "");
 
                     conn = DriverManager.getConnection(url, user, password);
 
-                        //perform the query.  Ideally the query can be stated precisely in terms of SQL statements.
-                        //If we need to do further processing, this would be where we implement that
+                    //perform the query.  Ideally the query can be stated precisely in terms of SQL statements.
+                    //If we need to do further processing, this would be where we implement that
                     Statement statement = conn.createStatement();
                     ResultSet results = statement.executeQuery(query);
                     results.next();
 
-                        //Add noise according to sensitivity; it is the Aggregator's job to allocate this
+                    //Add noise according to sensitivity; it is the Aggregator's job to allocate this
                     BigInteger[] encrypted_response = new BigInteger[queryAndNoise.length - 1];
                     for (int i = 1; i < queryAndNoise.length; i++) {
                         String[] dict = queryAndNoise[i].split(":");
@@ -121,11 +117,10 @@ public class ClientSSH {
                         BigInteger aggregatePlusNoise = BigInteger.valueOf(Math.round(aggregate + noise) * 100);
                         BigInteger encrypted_message = encryptionKey.encrypt(aggregatePlusNoise);
                         encrypted_response[i - 1] = encrypted_message;
-                        System.out.println(encrypted_message.toString(10));
-                            //]Remember we're sending back 100 times the values we're looking for.
-                            // For purposes of odds ratios this won't be problematic but it can show up elsewhere.
+                        //]Remember we're sending back 100 times the values we're looking for.
+                        // For purposes of odds ratios this won't be problematic but it can show up elsewhere.
                     }
-                    objectOutputStream1.writeObject(encrypted_response);
+                    junk = send(aggregatorAddress,port,encrypted_response);
                     break;
                 }
 
@@ -135,20 +130,13 @@ public class ClientSSH {
 
                 case 'e': {//encrypted text
                         //perform a partial decryption and return
-                        //System.out.println(serverMessage);
-                    objectOutputStream1.writeObject(decryptionKey.decrypt(new BigInteger(serverMessage)));
+                    junk = send(aggregatorAddress,port,decryptionKey.decrypt((new BigInteger(serverMessage))));
                     break;
                 }
                 case 'k': {
-                    aggregatorSocket.close();
-                    serverSocket.close();
                     return;
                 }
             }
-            objectOutputStream1.close();
-            objectInputStream1.close();
-            aggregatorSocket.close();
-//                serverSocket.close();
         }
     }
 }

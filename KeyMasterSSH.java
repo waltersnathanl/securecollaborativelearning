@@ -1,60 +1,77 @@
 import java.io.*;
+import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.security.InvalidKeyException;
+import java.security.NoSuchAlgorithmException;
+import java.security.PublicKey;
+import java.security.SecureRandom;
 import java.util.Random;
 
 import paillierp.*;
 import paillierp.key.*;
 import paillierp.zkp.*;
 
+import javax.crypto.BadPaddingException;
+import javax.crypto.Cipher;
+import javax.crypto.IllegalBlockSizeException;
+import javax.crypto.NoSuchPaddingException;
+
 public class KeyMasterSSH {
-    public static void main(String[] args) throws IOException {
+    public static Object send(InetAddress target, int port, Object message) throws IOException, ClassNotFoundException {
+        Socket socket = new Socket(target, 8080);
+        OutputStream outputStream = socket.getOutputStream();
+        InputStream inputStream = socket.getInputStream();
+        ObjectOutputStream objectOutputStream = new ObjectOutputStream(outputStream);
+        ObjectInputStream objectInputStream = new ObjectInputStream(inputStream);
+        objectOutputStream.writeObject(message);
+        Object payload = objectInputStream.readObject();
+        socket.close();
+        return payload;
+    }
+
+    public static Object get(int port, Object returnMessage) throws IOException, ClassNotFoundException {
+        ServerSocket serverSocket = new ServerSocket(8080);
+        Socket socket = serverSocket.accept();
+        OutputStream outputStream = socket.getOutputStream();
+        InputStream inputStream = socket.getInputStream();
+        ObjectOutputStream objectOutputStream = new ObjectOutputStream(outputStream);
+        ObjectInputStream objectInputStream = new ObjectInputStream((inputStream));
+        objectOutputStream.writeObject(returnMessage);
+        Object payload = objectInputStream.readObject();
+        socket.close();
+        return payload;
+    }
+
+    public static void main(String[] args) throws IOException, ClassNotFoundException, NoSuchPaddingException, NoSuchAlgorithmException, InvalidKeyException, BadPaddingException, IllegalBlockSizeException {
         //if (args.length < 1) return;
         //int port = Integer.parseInt(args[0]);
         int port = 8080;
-        try (ServerSocket serverSocket = new ServerSocket(port)) {
 
-            //           while(true){
-            Socket socket = serverSocket.accept();
+        InetAddress[] addresses = (InetAddress[]) get(port, "confirmed");
+        int numberOfKeys = addresses.length;
+        //For now, we will make it so all clients can work together to decrypt the aggregates.  Ideally we would
+        //make the aggregator unable to participate, but at the moment it seems difficult to make a true public key
+        //using the Paillier package, and it's not worth the time it would take to fix it.  Instead we will ignore
+        //that functionality of the aggregator's key
 
-            OutputStream outputStream = socket.getOutputStream();
-            InputStream inputStream = socket.getInputStream();
-            ObjectOutputStream objectOutputStream = new ObjectOutputStream(outputStream);
-            ObjectInputStream objectInputStream = new ObjectInputStream(inputStream);
+        SecureRandom rnd = new SecureRandom();
+        PaillierPrivateThresholdKey[] keys = KeyGen.PaillierThresholdKey(128, numberOfKeys,numberOfKeys-1, rnd.nextLong());
 
-            String[] addresses = (String[]) objectInputStream.readObject();
-            int number_of_keys = addresses.length;
-            //For now, we will make it so all clients can work together to decrypt the aggregates.  Ideally we would
-            //make the aggregator unable to participate, but at the moment it seems difficult to make a true public key
-            //using the Paillier package, and it's not worth the time it would take to fix it.
+        Object junk;
 
-            Random rnd = new Random();
-            PaillierPrivateThresholdKey[] keys = KeyGen.PaillierThresholdKey(128, number_of_keys, number_of_keys - 1, rnd.nextLong());
-
-            byte[] currentMessage;
-
-            for (int i = 0; i < number_of_keys; i++) {
-                try (Socket socket1 = new Socket(addresses[i], 8080)) {
-                    OutputStream outputStream1 = socket1.getOutputStream();
-                    InputStream inputStream1 = socket1.getInputStream();
-                    ObjectOutputStream objectOutputStream1 = new ObjectOutputStream(outputStream1);
-                    ObjectInputStream objectInputStream1 = new ObjectInputStream(inputStream1);
-                    currentMessage = keys[i].toByteArray();
-                    objectOutputStream1.writeObject(currentMessage);
-                    while (objectInputStream1.available() > 0) {
-                        System.out.println((String) objectInputStream1.readObject());
-                    }
-
-
-
-                } catch (ClassNotFoundException e) {
-                    e.printStackTrace();
-
-                }
-            }
-            System.out.println("Keys Delivered.  Signing off.");
-        } catch (ClassNotFoundException e) {
-            e.printStackTrace();
+        //Now let's get everyone's public key and send them an encrypted key for Paillier
+        PublicKey[] publicKeys = new PublicKey[addresses.length];
+        Cipher currentCipher;
+        for(int i = 1;1<numberOfKeys;i++){
+            junk = send(addresses[i],port,addresses[numberOfKeys-1]);
+            publicKeys[i] = (PublicKey) send(addresses[i],port,"Public Key?");
+            currentCipher = Cipher.getInstance("RSA");
+            currentCipher.init(Cipher.ENCRYPT_MODE,publicKeys[i]);
+            junk = send(addresses[i],port,currentCipher.doFinal(keys[i].toByteArray()));
         }
+
+        System.out.println("Keys Delivered.  Signing off.");
     }
 }
+
