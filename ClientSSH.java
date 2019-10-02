@@ -63,11 +63,11 @@ public class ClientSSH {
         PrivateKey privateKey = pair.getPrivate();
         Cipher decryptionCipher = Cipher.getInstance("RSA");
         decryptionCipher.init(Cipher.DECRYPT_MODE,privateKey);
-        System.out.println("RSA key pair generated!");
+        System.out.println("Client " + InetAddress.getLocalHost() + " RSA key pair generated!");
 
         Object junk;
         InetAddress aggregatorAddress = (InetAddress) get(port,publicKey);
-        System.out.println("Aggregator address received and public key sent");
+        System.out.println("Client " + InetAddress.getLocalHost() + "Aggregator address received and public key sent");
 
         byte[] encryptedPaillierKey = (byte[]) get(port,"confirmed");
         byte[] decryptedPaillierKey = decryptionCipher.doFinal(encryptedPaillierKey);
@@ -76,7 +76,7 @@ public class ClientSSH {
         //the seed is unimportant at this stage, but the constructor wants it.
         PaillierThreshold decryptionKey = new PaillierThreshold(myKey);
         Paillier encryptionKey = new Paillier(decryptionKey.getPublicKey());
-        System.out.println("Paillier key received!");
+        System.out.println("Client " + InetAddress.getLocalHost() + " Paillier key received!");
 
 
         // Now we are talking to the aggregator, which can have longer conversations.
@@ -91,7 +91,7 @@ public class ClientSSH {
         serverMessageAndType = (String) objectInputStream.readObject();
         char messageType = serverMessageAndType.charAt(0);
         String serverMessage = serverMessageAndType.substring(1);
-        System.out.println(messageType);
+        System.out.println("Client " + InetAddress.getLocalHost() + " received message of type " + messageType);
         switch (messageType) {
             case 'q': {//query
                 //create the database connection -- we'll use same basic configuration for each database here
@@ -120,7 +120,7 @@ public class ClientSSH {
                 for (int i = 1; i < queryAndNoise.length; i++) {
                     String[] dict = queryAndNoise[i].split(":");
                     double noise = laplace(Double.parseDouble(dict[1]));
-                    System.out.println(dict[0]);
+                    //System.out.println(dict[0]);
                     int aggregate = results.getInt(dict[0]);
                     double aggPlusNoise = (aggregate + noise) * 10;
                     if(aggPlusNoise<1){
@@ -129,7 +129,7 @@ public class ClientSSH {
                     BigInteger aggregatePlusNoise = BigInteger.valueOf(Math.round(aggPlusNoise));
                     BigInteger encrypted_message = encryptionKey.encrypt(aggregatePlusNoise);
                     encrypted_response[i - 1] = encrypted_message;
-                    System.out.println(encrypted_message.toString(10));
+                    //System.out.println(encrypted_message.toString(10));
                     //]Remember we're sending back 100 times the values we're looking for.
                     // For purposes of odds ratios this won't be problematic but it can show up elsewhere.
                 }
