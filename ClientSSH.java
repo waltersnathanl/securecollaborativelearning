@@ -122,17 +122,17 @@ public class ClientSSH {
                         encrypted_response[i - 1] = encrypted_message;
                         //We're sending back 100 times the values we're looking for (in order to allow for decimals).
                         // For purposes of odds ratios this won't be problematic but it can show up elsewhere.
-                }
-                objectOutputStream.writeObject(encrypted_response);
-                objectOutputStream.writeObject("finished");
-                break;
+                    }
+                    objectOutputStream.writeObject(encrypted_response);
+                    objectOutputStream.writeObject("finished");
+                    break;
                 }
 
 
                 case 'e': {//encrypted text
                 //perform a partial decryption and return
-                objectOutputStream.writeObject(decryptionKey.decrypt((new BigInteger(serverMessage))));
-                break;
+                    objectOutputStream.writeObject(decryptionKey.decrypt((new BigInteger(serverMessage))));
+                    break;
                 }
                 case 'k': {//kill the process...gracefully
                     socket.close();
