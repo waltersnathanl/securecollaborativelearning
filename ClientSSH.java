@@ -122,7 +122,7 @@ public class ClientSSH {
                     double noise = laplace(Double.parseDouble(dict[1]));
                     //System.out.println(dict[0]);
                     int aggregate = results.getInt(dict[0]);
-                    double aggPlusNoise = (aggregate + noise) * 10;
+                    double aggPlusNoise = (aggregate + noise) * 100;
                     if(aggPlusNoise<1){
                         aggPlusNoise = 1;
                     }
