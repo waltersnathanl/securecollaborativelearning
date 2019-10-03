@@ -4,7 +4,7 @@ mysql-connector.jar is the standard connector.  All Client* require this jar to 
 
 AggregatorServer and ClientServer are rough drafts; code and structure were significantly improved.
 
-This software is expected to be run in a network.  KeyMaster and five ClientSSH instances are expected to be running before any Aggregator is run.  In practice, wait for "RSA Key Pair Generated!" to be displayed by each client to indicate that it has "booted up" fully.
+This software is expected to be run in a network.  KeyMasterSSH and five ClientSSH instances are expected to be running before any Aggregator is run.  In practice, wait for "RSA Key Pair Generated!" to be displayed by each client to indicate that it has "booted up" fully.
 
 AggregatorSSH and AggregatorCloud are the same software but expected to be run from different locations.  AggregatorSSH is meant to be run from local hardware and uses the public IPs of Amazon EC2 instances.  AggregatorCloud is meant to be run from the cloud and uses private IPs.
 
