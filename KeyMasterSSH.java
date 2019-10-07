@@ -28,13 +28,14 @@ public class KeyMasterSSH {
         ObjectOutputStream objectOutputStream = new ObjectOutputStream(outputStream);
         ObjectInputStream objectInputStream = new ObjectInputStream((inputStream));
 
+        //We start by finding out how many keys we'll need
         int numberOfKeys = (int) objectInputStream.readObject();
         PublicKey[] publicKeys = new PublicKey[numberOfKeys];
 
         //We don't want to send private keys over plaintext, so let's get everyone's public key
         for(int i=0; i<numberOfKeys; i++){
             publicKeys[i] = (PublicKey) objectInputStream.readObject();
-            System.out.println("Public key " + i + " received");
+            System.out.println("KeyMaster: Public key " + i + " received");
         }
 
         SecureRandom rnd = new SecureRandom();
@@ -51,13 +52,12 @@ public class KeyMasterSSH {
             currentCipher = Cipher.getInstance("RSA");
             currentPublicKey = publicKeys[i];
             currentCipher.init(Cipher.ENCRYPT_MODE,currentPublicKey);
-            System.out.println(keys[i].toByteArray().length);
             objectOutputStream.writeObject(currentCipher.doFinal(keys[i].toByteArray()));
-            System.out.println("Paillier key " + i + " delivered");
+            System.out.println("KeyMaster: Paillier key " + i + " delivered");
         }
 
         socket.close();
         serverSocket.close();
-        System.out.println("Keys Delivered.  Signing off.");
+        System.out.println("KeyMaster: Keys Delivered.  Signing off.");
     }
 }

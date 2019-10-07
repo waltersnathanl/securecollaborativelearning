@@ -73,6 +73,7 @@ public class ClientSSH {
         //We have q-query, e-encrypted, and k-kill
         String serverMessageAndType;
         ServerSocket serverSocket = new ServerSocket(port);
+
         while(true){
             Socket socket = serverSocket.accept();
             OutputStream outputStream = socket.getOutputStream();
@@ -82,9 +83,9 @@ public class ClientSSH {
             serverMessageAndType = (String) objectInputStream.readObject();
             char messageType = serverMessageAndType.charAt(0);
             String serverMessage = serverMessageAndType.substring(1);
-            System.out.println("Client " + InetAddress.getLocalHost() + " received message of type " + messageType);
             switch (messageType) {
                 case 'q': {//query
+                    System.out.println("Client " + InetAddress.getLocalHost() + " received a SQL query");
                     //create the database connection -- we'll use same basic configuration for each database here
                     //fancy future version will have something like a JSON table that has db info, aliases, etc
                     // create our mysql database connection
@@ -124,17 +125,19 @@ public class ClientSSH {
                         // For purposes of odds ratios this won't be problematic but it can show up elsewhere.
                     }
                     objectOutputStream.writeObject(encrypted_response);
-                    objectOutputStream.writeObject("finished");
+                    //objectOutputStream.writeObject("finished");
                     break;
                 }
 
 
                 case 'e': {//encrypted text
                 //perform a partial decryption and return
+                    System.out.println("Client " + InetAddress.getLocalHost() + " received an encrypted number");
                     objectOutputStream.writeObject(decryptionKey.decrypt((new BigInteger(serverMessage))));
                     break;
                 }
                 case 'k': {//kill the process...gracefully
+                    System.out.println("Client " + InetAddress.getLocalHost() + " received stand down order");
                     socket.close();
                     serverSocket.close();
                     return;
