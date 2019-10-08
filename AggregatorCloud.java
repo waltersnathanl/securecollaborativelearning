@@ -17,6 +17,7 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.security.*;
 import java.util.Random;
+import java.util.concurrent.TimeUnit;
 
 public class AggregatorCloud{
     //In practice these functions ended up being less useful than anticipated.
@@ -32,7 +33,7 @@ public class AggregatorCloud{
         return payload;
     }
 
-    public static void main(String[] args) throws IOException, ClassNotFoundException, NoSuchAlgorithmException, NoSuchPaddingException, InvalidKeyException, BadPaddingException, IllegalBlockSizeException {
+    public static void main(String[] args) throws IOException, ClassNotFoundException, NoSuchAlgorithmException, NoSuchPaddingException, InvalidKeyException, BadPaddingException, IllegalBlockSizeException, InterruptedException {
         //Task 1: get a list we can use to communicate with all the clients.
         InetAddress[] clients = new InetAddress [5];
         clients[0] = InetAddress.getByName("172.31.21.68");
@@ -46,6 +47,7 @@ public class AggregatorCloud{
         int port = 8080;
 
         //Let's also initialize RSA
+        SecureRandom rnd = new SecureRandom();
         KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
         generator.initialize(2048,new SecureRandom());
         KeyPair pair = generator.generateKeyPair();
@@ -58,21 +60,30 @@ public class AggregatorCloud{
         Cipher decryptCipher = Cipher.getInstance("RSA");
         decryptCipher.init(Cipher.DECRYPT_MODE,privateKey);
 
+        Socket socket;
+        OutputStream outputStream;
+        InputStream inputStream;
+        ObjectOutputStream objectOutputStream;
+        ObjectInputStream objectInputStream;
+
         //send aggregator's address to all clients and get their public keys
         PublicKey[] publicKeys = new PublicKey[number_of_clients+1];
-
         for(int i=0;i<number_of_clients;i++) {
-            publicKeys[i] = (PublicKey) swapObjects(clients[i], port,"What is your public key?");
+            socket = new Socket(clients[i],port);
+            inputStream = socket.getInputStream();
+            objectInputStream = new ObjectInputStream(inputStream);
+            publicKeys[i] = (PublicKey) objectInputStream.readObject();
             System.out.println("Public key received from client " + i);
+            socket.close();
         }
         publicKeys[number_of_clients] = publicKey;
 
         //Now let's trade public keys for Paillier keys
-        Socket socket = new Socket(keyMaster, port);
-        OutputStream outputStream = socket.getOutputStream();
-        InputStream inputStream = socket.getInputStream();
-        ObjectOutputStream objectOutputStream = new ObjectOutputStream(outputStream);
-        ObjectInputStream objectInputStream = new ObjectInputStream(inputStream);
+        socket = new Socket(keyMaster, port);
+        outputStream = socket.getOutputStream();
+        inputStream = socket.getInputStream();
+        objectOutputStream = new ObjectOutputStream(outputStream);
+        objectInputStream = new ObjectInputStream(inputStream);
         objectOutputStream.writeObject(number_of_clients+1);
         for(int i = 0; i < publicKeys.length; i++){
             objectOutputStream.writeObject(publicKeys[i]);
@@ -86,12 +97,26 @@ public class AggregatorCloud{
         }
         socket.close();
 
-        Object junk;  //We will swap a Paillier key for an unimportant confirmation message
         //We now have all the keys.  Let's send them out and decrypt our own
+        int currentSalt;
+        int saltTotal = 0;
         for(int i=0;i<number_of_clients;i++){
-            junk = swapObjects(clients[i],port,encryptedPaillierKeys[i]);
-            System.out.println("Paillier key delivered to client " + i);
+            /*
+            TODO - Switch everything around.  We're properly opening a socket here.
+            We're going to send the encrypted Paillier key as well as a Long salt.
+            We will have to change the corresponding part in ClientSSH.  Also, keep track of the total of the salt values.
+             */
+            currentSalt = Math.abs(rnd.nextInt());
+            saltTotal += currentSalt;
+            socket = new Socket(clients[i],port);
+            outputStream = socket.getOutputStream();
+            objectOutputStream = new ObjectOutputStream(outputStream);
+            objectOutputStream.writeObject(encryptedPaillierKeys[i]);
+            objectOutputStream.writeObject(currentSalt);
+//            junk = swapObjects(clients[i],port,encryptedPaillierKeys[i]);
+            System.out.println("Paillier key and salt delivered to client " + i);
         }
+        BigInteger biSaltTotal = BigInteger.valueOf(saltTotal);
         byte[] decryptedBytestream = decryptCipher.doFinal(encryptedPaillierKeys[publicKeys.length-1]);
         PaillierPrivateThresholdKey paillierKey = new PaillierPrivateThresholdKey(decryptedBytestream,1L);
         //This seed is irrelevant after key creation but the constructor wants it anyway so we just give it a fixed value
@@ -104,14 +129,19 @@ public class AggregatorCloud{
             //NB-q means the rest of the string is: query&&&key:value&&&key:value&&&...
         String query = "qSELECT cancer_events, cancer_total, normal_events, normal_total FROM healthdata;&&&cancer_events:0.25&&&cancer_total:0.25&&&normal_events:0.25&&&normal_total:0.25";
         int length_of_response = 4;
-        //TODO: this area could use many improvements in terms of accepting user-specified queries, epsilon values, and writing the q-message internally
 
         //subtask 2: collect encrypted responses
         BigInteger[][] responseMatrix = new BigInteger[number_of_clients][];
         BigInteger[] arrayResponse;
 
         for(int i=0;i<number_of_clients;i++){
-            socket = new Socket(clients[i],port);
+            try{socket = new Socket(clients[i],port);}
+            catch (Exception e){  //Occasionally the socket is not ready at this step.  It's rare but not rare enough.
+                //This simple patch seems to cover it.
+                System.out.println("ALERT! Exception raised connecting to client " + i +".  Trying again.");
+                TimeUnit.SECONDS.sleep(1);
+                socket = new Socket(clients[i],port);
+            }
             outputStream = socket.getOutputStream();
             inputStream = socket.getInputStream();
             objectOutputStream = new ObjectOutputStream(outputStream);
@@ -119,7 +149,7 @@ public class AggregatorCloud{
             objectOutputStream.writeObject(query);
             arrayResponse = (BigInteger[]) objectInputStream.readObject();
             responseMatrix[i] = arrayResponse;
-            junk = objectInputStream.readObject();
+            //junk = objectInputStream.readObject();
             objectOutputStream.close();
             objectInputStream.close();
             socket.close();
@@ -144,9 +174,11 @@ public class AggregatorCloud{
         //Task 4: distribute the aggregates and decipher
         BigInteger[] cleartextAggregates = new BigInteger[length_of_response];
         PartialDecryption currentPartialDecryption;
+
         for(int j=0;j<length_of_response;j++){
-            PartialDecryption[] partialDecryptions = new PartialDecryption[number_of_clients];
-            for(int i=0;i<clients.length;i++) {
+            PartialDecryption[] partialDecryptions = new PartialDecryption[number_of_clients+1];
+            partialDecryptions[number_of_clients] = thresholdKey.decrypt(aggregatedResponses[j]);
+            for(int i=0;i<number_of_clients;i++) {
                 socket = new Socket(clients[i],port);
                 outputStream = socket.getOutputStream();
                 inputStream = socket.getInputStream();
@@ -158,7 +190,7 @@ public class AggregatorCloud{
                 partialDecryptions[i] = currentPartialDecryption;
                 socket.close();
             }
-            cleartextAggregates[j] = thresholdKey.combineShares(partialDecryptions);
+            cleartextAggregates[j] = (thresholdKey.combineShares(partialDecryptions)).subtract(biSaltTotal);
             System.out.println("Decrypted output value " + j);
         }
         //Task 5: Final processing.

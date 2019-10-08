@@ -55,31 +55,54 @@ public class ClientSSH {
         decryptionCipher.init(Cipher.DECRYPT_MODE,privateKey);
         System.out.println("Client " + InetAddress.getLocalHost() + " RSA key pair generated!");
 
-        Object junk;
-        junk = serverSwapObjects(port,publicKey);  //we only want to send our public key; the Aggregator has nothing we need now
-        System.out.println("Client " + InetAddress.getLocalHost() + "Aggregator address received and public key sent");
+        ServerSocket serverSocket = new ServerSocket(port);
+        Socket socket;
+        OutputStream outputStream;
+        InputStream inputStream;
+        ObjectOutputStream objectOutputStream;
+        ObjectInputStream objectInputStream;
 
-        byte[] encryptedPaillierKey = (byte[]) serverSwapObjects(port,"confirmed");
+        //Step one: transmit public Key when prompted
+        socket = serverSocket.accept();
+        outputStream = socket.getOutputStream();
+        objectOutputStream = new ObjectOutputStream(outputStream);
+        objectOutputStream.writeObject(publicKey);
+        System.out.println("Client " + InetAddress.getLocalHost() + ": Public key sent");
+        objectOutputStream.close();
+        socket.close();
+
+        /*
+        TODO - Switch things around to fit AggregatorSSH.  We're going to open a proper socket.
+        We will receive a Paillier key and a Long salt value.  Then we will add the salt to AggPlusNoise
+         */
+
+        socket = serverSocket.accept();
+        inputStream = socket.getInputStream();
+        objectInputStream = new ObjectInputStream(inputStream);
+        byte[] encryptedPaillierKey = (byte[]) objectInputStream.readObject();
+        int salt = (int) objectInputStream.readObject();
+        objectInputStream.close();
+        socket.close();
+        System.out.println("Client " + InetAddress.getLocalHost() + ": received Paillier key and salt value");
+
         byte[] decryptedPaillierKey = decryptionCipher.doFinal(encryptedPaillierKey);
-
         PaillierPrivateThresholdKey myKey = new PaillierPrivateThresholdKey(decryptedPaillierKey,1L);
-        //the seed is unimportant at this stage, but the constructor wants it.
+        //the seed is unimportant at this stage, but the constructor requires a value.
         PaillierThreshold decryptionKey = new PaillierThreshold(myKey);
         Paillier encryptionKey = new Paillier(decryptionKey.getPublicKey());
         System.out.println("Client " + InetAddress.getLocalHost() + " Paillier key received!");
 
 
         //For the rest of the run we should only be receiving Strings, the first character of which describes the message type
-        //We have q-query, e-encrypted, and k-kill
-        String serverMessageAndType;
-        ServerSocket serverSocket = new ServerSocket(port);
+        //We have q-query, e-encrypted number, and k-kill the process
 
+        String serverMessageAndType;
         while(true){
-            Socket socket = serverSocket.accept();
-            OutputStream outputStream = socket.getOutputStream();
-            InputStream inputStream = socket.getInputStream();
-            ObjectOutputStream objectOutputStream = new ObjectOutputStream(outputStream);
-            ObjectInputStream objectInputStream = new ObjectInputStream(inputStream);
+            socket = serverSocket.accept();
+            outputStream = socket.getOutputStream();
+            inputStream = socket.getInputStream();
+            objectOutputStream = new ObjectOutputStream(outputStream);
+            objectInputStream = new ObjectInputStream(inputStream);
             serverMessageAndType = (String) objectInputStream.readObject();
             char messageType = serverMessageAndType.charAt(0);
             String serverMessage = serverMessageAndType.substring(1);
@@ -101,8 +124,7 @@ public class ClientSSH {
 
                     conn = DriverManager.getConnection(url, user, password);
 
-                    //perform the query.  Ideally the query can be stated precisely in terms of SQL statements.
-                    //If we need to do further processing, this would be where we implement that
+                    //perform the query.
                     Statement statement = conn.createStatement();
                     ResultSet results = statement.executeQuery(query);
                     results.next();
@@ -113,12 +135,13 @@ public class ClientSSH {
                         String[] dict = queryAndNoise[i].split(":");
                         double noise = laplace(Double.parseDouble(dict[1]));
                         int aggregate = results.getInt(dict[0]);
-                        double aggPlusNoise = (aggregate + noise) * 100;
-                        if(aggPlusNoise<1){
-                            aggPlusNoise = 1; //This is a kludge, but some of our values are very small, and returning negatives
-                            //could seriously mess everything up.
+                        Long responseValue = Math.round((aggregate + noise) * 100) + salt;
+                        if(responseValue<1){
+                            responseValue = 1L; //This is probably no longer necessary with the positive integer salt value
+                            //but there's no reason to remove it as encrypting a negative throws an exception
                         }
-                        BigInteger aggregatePlusNoise = BigInteger.valueOf(Math.round(aggPlusNoise));
+                        BigInteger aggregatePlusNoise = BigInteger.valueOf(responseValue);
+
                         BigInteger encrypted_message = encryptionKey.encrypt(aggregatePlusNoise);
                         encrypted_response[i - 1] = encrypted_message;
                         //We're sending back 100 times the values we're looking for (in order to allow for decimals).

@@ -39,9 +39,9 @@ public class KeyMasterSSH {
         }
 
         SecureRandom rnd = new SecureRandom();
-        PaillierPrivateThresholdKey[] keys = KeyGen.PaillierThresholdKey(40, numberOfKeys,numberOfKeys-1, rnd.nextLong());
-        //NB-We would turn the Aggregator's key into a public key if we could; it has no need for the power of partial decryption.
-        //Sadly, this functionality does not seem to be working, so it gets a threshold key like everyone else.
+        PaillierPrivateThresholdKey[] keys = KeyGen.PaillierThresholdKey(40, numberOfKeys,numberOfKeys, rnd.nextLong());
+        //NB-The Aggregator's key is currently necessary for decryption in order to protect the salts from exposure even in
+        //the case of having only 2 clients.  This may be overly paranoid.
 
 
         PublicKey currentPublicKey;
