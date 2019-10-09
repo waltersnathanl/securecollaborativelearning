@@ -20,19 +20,6 @@ import java.util.Random;
 import java.util.concurrent.TimeUnit;
 
 public class AggregatorCloud{
-    //In practice these functions ended up being less useful than anticipated.
-    public static Object swapObjects(InetAddress target, int port, Object message) throws IOException, ClassNotFoundException {
-        Socket socket = new Socket(target, port);
-        OutputStream outputStream = socket.getOutputStream();
-        InputStream inputStream = socket.getInputStream();
-        ObjectOutputStream objectOutputStream = new ObjectOutputStream(outputStream);
-        ObjectInputStream objectInputStream = new ObjectInputStream(inputStream);
-        objectOutputStream.writeObject(message);
-        Object payload = objectInputStream.readObject();
-        socket.close();
-        return payload;
-    }
-
     public static void main(String[] args) throws IOException, ClassNotFoundException, NoSuchAlgorithmException, NoSuchPaddingException, InvalidKeyException, BadPaddingException, IllegalBlockSizeException, InterruptedException {
         //Task 1: get a list we can use to communicate with all the clients.
         InetAddress[] clients = new InetAddress [5];
@@ -53,11 +40,10 @@ public class AggregatorCloud{
         KeyPair pair = generator.generateKeyPair();
         PublicKey publicKey = pair.getPublic();
         PrivateKey privateKey = pair.getPrivate();
-
         Cipher encryptCipher = Cipher.getInstance("RSA");
-        encryptCipher.init(Cipher.ENCRYPT_MODE,publicKey);
-
         Cipher decryptCipher = Cipher.getInstance("RSA");
+
+        encryptCipher.init(Cipher.ENCRYPT_MODE,publicKey);
         decryptCipher.init(Cipher.DECRYPT_MODE,privateKey);
 
         Socket socket;
@@ -66,7 +52,7 @@ public class AggregatorCloud{
         ObjectOutputStream objectOutputStream;
         ObjectInputStream objectInputStream;
 
-        //send aggregator's address to all clients and get their public keys
+        //get all the clients' public keys
         PublicKey[] publicKeys = new PublicKey[number_of_clients+1];
         for(int i=0;i<number_of_clients;i++) {
             socket = new Socket(clients[i],port);
@@ -78,7 +64,7 @@ public class AggregatorCloud{
         }
         publicKeys[number_of_clients] = publicKey;
 
-        //Now let's trade public keys for Paillier keys
+        //Talk to the KeyMaster.  First we send public keys
         socket = new Socket(keyMaster, port);
         outputStream = socket.getOutputStream();
         inputStream = socket.getInputStream();
@@ -90,6 +76,7 @@ public class AggregatorCloud{
             System.out.println("Public Key " + i + " transmitted");
         }
 
+        //Now we receive encrypted Paillier keys
         byte[][] encryptedPaillierKeys = new byte[publicKeys.length][];
         for(int i = 0; i < publicKeys.length; i++){
             encryptedPaillierKeys[i] = (byte[]) objectInputStream.readObject();
@@ -97,23 +84,18 @@ public class AggregatorCloud{
         }
         socket.close();
 
-        //We now have all the keys.  Let's send them out and decrypt our own
-        int currentSalt;
+        //We now have all the keys.  Let's send them out, as well as salt values
+        int currentSalt; //Would a Long be better?  No, because our cryptosystem can't handle large numbers...at least
+                         //without doing a deep dive under the hood.
         int saltTotal = 0;
         for(int i=0;i<number_of_clients;i++){
-            /*
-            TODO - Switch everything around.  We're properly opening a socket here.
-            We're going to send the encrypted Paillier key as well as a Long salt.
-            We will have to change the corresponding part in ClientSSH.  Also, keep track of the total of the salt values.
-             */
-            currentSalt = Math.abs(rnd.nextInt());
+            currentSalt = Math.abs(rnd.nextInt()); //Negative values are also a no-no for our crypto
             saltTotal += currentSalt;
             socket = new Socket(clients[i],port);
             outputStream = socket.getOutputStream();
             objectOutputStream = new ObjectOutputStream(outputStream);
             objectOutputStream.writeObject(encryptedPaillierKeys[i]);
             objectOutputStream.writeObject(currentSalt);
-//            junk = swapObjects(clients[i],port,encryptedPaillierKeys[i]);
             System.out.println("Paillier key and salt delivered to client " + i);
         }
         BigInteger biSaltTotal = BigInteger.valueOf(saltTotal);
@@ -121,16 +103,14 @@ public class AggregatorCloud{
         PaillierPrivateThresholdKey paillierKey = new PaillierPrivateThresholdKey(decryptedBytestream,1L);
         //This seed is irrelevant after key creation but the constructor wants it anyway so we just give it a fixed value
         PaillierThreshold thresholdKey = new PaillierThreshold(paillierKey);
-
         System.out.println("all keys distributed");
 
-        //Task 2: distribute the query and acquire coded responses
-        //subtask 1: create the query.  This includes the value names and the values of epsilon for differential privacy
-            //NB-q means the rest of the string is: query&&&key:value&&&key:value&&&...
+        //distribute the query and acquire coded responses
         String query = "qSELECT cancer_events, cancer_total, normal_events, normal_total FROM healthdata;&&&cancer_events:0.25&&&cancer_total:0.25&&&normal_events:0.25&&&normal_total:0.25";
+        //NB-initial character q means the rest of the string is a query, to be parsed as: query&&&key:value&&&key:value&&&...
         int length_of_response = 4;
 
-        //subtask 2: collect encrypted responses
+        //collect encrypted responses
         BigInteger[][] responseMatrix = new BigInteger[number_of_clients][];
         BigInteger[] arrayResponse;
 
@@ -149,17 +129,15 @@ public class AggregatorCloud{
             objectOutputStream.writeObject(query);
             arrayResponse = (BigInteger[]) objectInputStream.readObject();
             responseMatrix[i] = arrayResponse;
-            //junk = objectInputStream.readObject();
             objectOutputStream.close();
             objectInputStream.close();
             socket.close();
             System.out.println("Queried client " + i);
         }
-        //Why didn't we just do a swapObjects?  Because the Client needs to process our output, and sO doesn't allow "time" for this
 
 
 
-        //Task 3: add up the responses
+        //add up the responses
         BigInteger[] aggregatedResponses = new BigInteger[length_of_response];
         BigInteger current_value;
         for(int j=0;j<length_of_response;j++){
@@ -171,7 +149,7 @@ public class AggregatorCloud{
         }
         System.out.println("Responses aggregated");
 
-        //Task 4: distribute the aggregates and decipher
+        //distribute the aggregates and decipher
         BigInteger[] cleartextAggregates = new BigInteger[length_of_response];
         PartialDecryption currentPartialDecryption;
 
@@ -184,16 +162,21 @@ public class AggregatorCloud{
                 inputStream = socket.getInputStream();
                 objectOutputStream = new ObjectOutputStream(outputStream);
                 objectInputStream = new ObjectInputStream(inputStream);
-                //System.out.println("Sending partial decryption " + j + " to client " + i);
+                System.out.println("Sending partial decryption " + j + " to client " + i);
                 objectOutputStream.writeObject("e" + aggregatedResponses[j].toString(10));
                 currentPartialDecryption = (PartialDecryption) objectInputStream.readObject();
                 partialDecryptions[i] = currentPartialDecryption;
                 socket.close();
             }
             cleartextAggregates[j] = (thresholdKey.combineShares(partialDecryptions)).subtract(biSaltTotal);
+            if(cleartextAggregates[j].compareTo(BigInteger.valueOf(0)) < 0){
+                //This should happen only when epsilon is large, and even then it should be vanishingly rare.
+                System.out.println("Too much noise added to the system!  Output would be nonsensical.");
+                return;
+            }
             System.out.println("Decrypted output value " + j);
         }
-        //Task 5: Final processing.
+        //final processing.
         //order is cancer_events, cancer_total, normal_events, normal_total
         double numerator = ((cleartextAggregates[0].intValue()))*(cleartextAggregates[3].intValue());
         double denominator =(cleartextAggregates[1].intValue() * cleartextAggregates[2].intValue());

@@ -43,7 +43,6 @@ public class KeyMasterSSH {
         //NB-The Aggregator's key is currently necessary for decryption in order to protect the salts from exposure even in
         //the case of having only 2 clients.  This may be overly paranoid.
 
-
         PublicKey currentPublicKey;
         Cipher currentCipher;
 
@@ -53,11 +52,11 @@ public class KeyMasterSSH {
             currentPublicKey = publicKeys[i];
             currentCipher.init(Cipher.ENCRYPT_MODE,currentPublicKey);
             objectOutputStream.writeObject(currentCipher.doFinal(keys[i].toByteArray()));
-            System.out.println("KeyMaster: Paillier key " + i + " delivered");
+            System.out.println("KeyMaster: Paillier key " + i + " transmitted");
         }
 
         socket.close();
         serverSocket.close();
-        System.out.println("KeyMaster: Keys Delivered.  Signing off.");
+        System.out.println("KeyMaster: All keys transmitted.  Signing off.");
     }
 }
